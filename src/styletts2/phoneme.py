@@ -24,8 +24,8 @@ class ESpeakPhonemizer(PhonemeConverter):
     def __init__(self, volume: int = 100, speed: int = 175, ssml: bool = False):
         self.phonemizer = ESpeakNG(volume=volume, speed=speed, ssml=ssml)
 
-    def phonemize(self, text, lang='english-us'):
-        self.phonemizer._voice = lang
+    def phonemize(self, text, lang='en-us'):
+        self.phonemizer.voice = lang
         phonemized_text = self.phonemizer.g2p(text, ipa=2)
         return phonemized_text
 
