@@ -9,9 +9,9 @@ class PhonemeConverter:
 
 
 class GruutPhonemizer(PhonemeConverter):
-    def phonemize(self, text, lang='en-us'):
+    def phonemize(self, text, lang='en-us', ssml: bool = False, espeak: bool = False):
         phonemized = []
-        for sent in sentences(text, lang=lang):
+        for sent in sentences(text, lang=lang, ssml=ssml, espeak=espeak):
             for word in sent:
                 if isinstance(word.phonemes, Iterable):
                     phonemized.append(''.join(word.phonemes))
@@ -21,11 +21,11 @@ class GruutPhonemizer(PhonemeConverter):
         return phonemized_text
 
 class ESpeakPhonemizer(PhonemeConverter):
-    def __init__(self):
-        self.phonemizer = ESpeakNG()
+    def __init__(self, volume: int = 100, speed: int = 175):
+        self.phonemizer = ESpeakNG(volume=volume, speed=speed)
 
-    def phonemize(self, text, lang='en-us'):
-        self.phonemizer.voice = lang
+    def phonemize(self, text, lang='english-us'):
+        self.phonemizer._voice = lang
         phonemized_text = self.phonemizer.g2p(text, ipa=2)
         return phonemized_text
 
@@ -38,8 +38,8 @@ class PhonemeConverterFactory:
     @staticmethod
     def load_phoneme_converter(name: str, **kwargs):
         if name == 'gruut':
-            return GruutPhonemizer()
+            return GruutPhonemizer(**kwargs)
         elif name == 'espeak':
-            return ESpeakPhonemizer()
+            return ESpeakPhonemizer(**kwargs)
         else:
             raise ValueError("Invalid phoneme converter.")
