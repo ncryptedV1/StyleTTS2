@@ -1874,10 +1874,14 @@ version = "0.1.8"
 description = "Python interface for eSpeak NG"
 optional = false
 python-versions = "*"
-files = [
-    {file = "py-espeak-ng-0.1.8.tar.gz", hash = "sha256:749f7c802caf2d314e0091552c689325da31ded738bfdfef4c1ae0cb5ecfbddd"},
-    {file = "py_espeak_ng-0.1.8-py2.py3-none-any.whl", hash = "sha256:f50bfdbfaf4f54a24019e7ef7d36bffe76d99e25875fc33d90912b394936c94b"},
-]
+files = []
+develop = false
+
+[package.source]
+type = "git"
+url = "https://github.com/ncryptedV1/py-espeak-ng.git"
+reference = "c1686b2df57c38c5a973a51e9041384070fd8774"
+resolved_reference = "c1686b2df57c38c5a973a51e9041384070fd8774"
 
 [[package]]
 name = "pyasn1"
@@ -2997,4 +3001,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "c14431953b8215a6181142cf5757ba360670a2deb0d6bb1e996da6fb18a3a41a"
+content-hash = "f1eec289967fcd614f09363133ec6c974b8a10cf381fe7ca5b7968598e69c444"

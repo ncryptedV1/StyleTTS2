@@ -39,7 +39,7 @@ gruut = "^2.3.4"
 gruut-ipa = "^0.13.0"
 gruut-lang-en = "^2.0.0"
 networkx = "^2.8.8, <3.0.0"
-py-espeak-ng = "^0.1.8"
+py-espeak-ng = {git = "https://github.com/ncryptedV1/py-espeak-ng.git", rev = "c1686b2df57c38c5a973a51e9041384070fd8774"}
 
 [build-system]
 requires = ["poetry-core"]
