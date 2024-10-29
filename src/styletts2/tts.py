@@ -42,8 +42,9 @@ DEFAULT_TARGET_VOICE_URL = "https://styletts2.github.io/wavs/LJSpeech/OOD/GT/000
 
 SINGLE_INFERENCE_MAX_LEN = 420
 
+HOP_LENGTH = 300
 to_mel = torchaudio.transforms.MelSpectrogram(
-    n_mels=80, n_fft=2048, win_length=1200, hop_length=300)
+    n_mels=80, n_fft=2048, win_length=1200, hop_length=HOP_LENGTH)
 mean, std = -4, 4
 
 
@@ -178,7 +179,7 @@ class StyleTTS2:
 
         return torch.cat([ref_s, ref_p], dim=1)
 
-    def calculate_word_timings(self, text, tokens, pred_aln_trg, hop_size=300, sample_rate=24000):
+    def calculate_word_timings(self, text, tokens, pred_aln_trg, hop_size=HOP_LENGTH * 2.5, sample_rate=24000):
         """
         Calculate start times and durations for each word in the TTS output.
 
@@ -186,7 +187,7 @@ class StyleTTS2:
             text (str): The input text that was synthesized
             tokens (torch.Tensor): The token tensor used for synthesis (including padding tokens)
             pred_aln_trg (torch.Tensor): The alignment matrix from the model
-            hop_size (int): The hop size used in the mel spectrogram (default: 300)
+            hop_size (int): The hop size used in the mel spectrogram (default: 300, but somehow we get more realistic results with a constant factor 2.5)
             sample_rate (int): The audio sample rate (default: 24000)
 
         Returns:
