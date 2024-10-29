@@ -178,6 +178,68 @@ class StyleTTS2:
 
         return torch.cat([ref_s, ref_p], dim=1)
 
+    def calculate_word_timings(self, text, tokens, pred_aln_trg, hop_size=300, sample_rate=24000):
+        """
+        Calculate start times and durations for each word in the TTS output.
+
+        Args:
+            text (str): The input text that was synthesized
+            tokens (torch.Tensor): The token tensor used for synthesis (including padding tokens)
+            pred_aln_trg (torch.Tensor): The alignment matrix from the model
+            hop_size (int): The hop size used in the mel spectrogram (default: 300)
+            sample_rate (int): The audio sample rate (default: 24000)
+
+        Returns:
+            list: List of dicts containing timing information for each word
+        """
+        # Convert alignment matrix to frame counts
+        frame_counts = pred_aln_trg.sum(dim=1).cpu().numpy()
+
+        # Remove padding tokens (0) from start and end
+        tokens = tokens.squeeze().cpu().numpy().tolist()
+        if tokens[0] == 0:
+            tokens = tokens[1:]
+        if tokens[-1] == 0:
+            tokens = tokens[:-1]
+        frame_counts = frame_counts[1:-1]  # Remove padding token frames
+
+        # Split text into words
+        words = text.strip().split()
+
+        # Initialize timing calculations
+        word_timings = []
+        current_frame = 0
+        current_token_idx = 0
+
+        for word in words:
+            word_start_frame = current_frame
+            word_frame_count = 0
+
+            # Count frames until we reach a space or end of sequence
+            while current_token_idx < len(frame_counts):
+                word_frame_count += frame_counts[current_token_idx]
+                current_token_idx += 1
+
+                # If we hit a space token (usually represented by token 16 in the vocabulary)
+                # or reach the end of the phonemes for this word, break
+                if tokens[current_token_idx] == 16:  # Space token
+                    current_token_idx += 1  # Skip the space token
+                    break
+                
+            # Convert frames to time
+            start_time = (word_start_frame * hop_size) / sample_rate
+            duration = (word_frame_count * hop_size) / sample_rate
+
+            word_timings.append({
+                'word': word,
+                'start_time': round(start_time, 3),
+                'duration': round(duration, 3),
+                'end_time': round(start_time + duration, 3)
+            })
+
+            current_frame += word_frame_count
+
+        return word_timings
 
     def inference(self,
                   text: str,
@@ -202,7 +264,7 @@ class StyleTTS2:
         :param embedding_scale: Higher scale means style is more conditional to the input text and hence more emotional.
         :param ref_s: Pre-computed style vector to pass directly.
         :param phonemize: Phonemize text. Defaults to True.
-        :return: audio data as a Numpy array (will also create the WAV file if output_wav_file was set).
+        :return: audio data as a Numpy array (will also create the WAV file if output_wav_file was set) &  & timings as list of dicts containing timing information on each word.
         """
 
         # BERT model is limited by a tensor size [1, 512] during its inference, which roughly corresponds to ~450 characters
@@ -276,6 +338,9 @@ class StyleTTS2:
                 pred_aln_trg[i, c_frame:c_frame + int(pred_dur[i].data)] = 1
                 c_frame += int(pred_dur[i].data)
 
+            # Calculate word timings after duration prediction
+            timings = self.calculate_word_timings(text, tokens, pred_aln_trg)
+
             # encode prosody
             en = (d.transpose(-1, -2) @ pred_aln_trg.unsqueeze(0).to(self.device))
             if self.model_params.decoder.type == "hifigan":
@@ -299,7 +364,7 @@ class StyleTTS2:
         output = out.squeeze().cpu().numpy()[..., :-50] # weird pulse at the end of the model, need to be fixed later
         if output_wav_file:
             scipy.io.wavfile.write(output_wav_file, rate=output_sample_rate, data=output)
-        return output
+        return output, timings
 
     def long_inference(self,
                        text: str,
@@ -338,12 +403,14 @@ class StyleTTS2:
 
         text_segments = segment_text(text)
         segments = []
+        all_timings = []
+        current_time_offset = 0
         prev_s = None
         for text_segment in text_segments:
             # Address cut-off sentence issue due to langchain text splitter
             if text_segment[-1] != '.':
                 text_segment += ', '
-            segment_output, prev_s = self.long_inference_segment(text_segment,
+            segment_output, prev_s, timings = self.long_inference_segment(text_segment,
                                                                  prev_s,
                                                                  ref_s,
                                                                  alpha=alpha,
@@ -351,12 +418,18 @@ class StyleTTS2:
                                                                  t=t,
                                                                  diffusion_steps=diffusion_steps,
                                                                  embedding_scale=embedding_scale,
-                                                                 phonemize=phonemize)
+                                                                 phonemize=phonemize,
+                                                                 current_time_offset=current_time_offset)
             segments.append(segment_output)
+            all_timings.extend(timings)
+
+            # Update time offset for next segment
+            # We subtract a small overlap to avoid gaps between segments
+            current_time_offset = timings[-1]['end_time'] - 0.1  # 100ms overlap
         output = np.concatenate(segments)
         if output_wav_file:
             scipy.io.wavfile.write(output_wav_file, rate=output_sample_rate, data=output)
-        return output
+        return output, all_timings
 
     def long_inference_segment(self,
                                text,
@@ -367,7 +440,8 @@ class StyleTTS2:
                                t=0.7,
                                diffusion_steps=5,
                                embedding_scale=1,
-                               phonemize=True):
+                               phonemize=True,
+                               current_time_offset=0.0):
         """
         Performs inference for segment of longform text; see long_inference()
         :param text: Input text
@@ -379,7 +453,8 @@ class StyleTTS2:
         :param diffusion_steps: The more the steps, the more diverse the samples are, with the cost of speed.
         :param embedding_scale: Higher scale means style is more conditional to the input text and hence more emotional.
         :param phonemize: Phonemize text? If not, expects that text is already phonemized
-        :return: audio data as a Numpy array
+        :param current_time_offset: Audio time passed up until this segment
+        :return: audio data as a Numpy array & timings as list of dicts containing timing information on each word
         """
         if phonemize:
             text = text.strip()
@@ -439,6 +514,14 @@ class StyleTTS2:
                 pred_aln_trg[i, c_frame:c_frame + int(pred_dur[i].data)] = 1
                 c_frame += int(pred_dur[i].data)
 
+            # Calculate word timings for this segment
+            timings = self.calculate_word_timings(text, tokens, pred_aln_trg)
+            
+            # Add the current time offset to all timings
+            for timing in timings:
+                timing['start_time'] += current_time_offset
+                timing['end_time'] += current_time_offset
+
             # encode prosody
             en = (d.transpose(-1, -2) @ pred_aln_trg.unsqueeze(0).to(self.device))
             if self.model_params.decoder.type == "hifigan":
@@ -459,4 +542,4 @@ class StyleTTS2:
             out = self.model.decoder(asr,
                                 F0_pred, N_pred, ref.squeeze().unsqueeze(0))
 
-        return out.squeeze().cpu().numpy()[..., :-100], s_pred
+        return out.squeeze().cpu().numpy()[..., :-100], s_pred, timings
