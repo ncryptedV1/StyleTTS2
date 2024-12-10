@@ -179,7 +179,7 @@ class StyleTTS2:
 
         return torch.cat([ref_s, ref_p], dim=1)
 
-    def calculate_word_timings(self, text, tokens, pred_aln_trg, hop_size=HOP_LENGTH * 2.5, sample_rate=24000):
+    def calculate_word_timings(self, text, tokens, pred_aln_trg, word_index_dictionary, hop_size=HOP_LENGTH * 2.5, sample_rate=24000):
         """
         Calculate start times and durations for each word in the TTS output.
 
@@ -200,9 +200,10 @@ class StyleTTS2:
         tokens = tokens.squeeze().cpu().numpy().tolist()
         if tokens[0] == 0:
             tokens = tokens[1:]
+            frame_counts = frame_counts[1:]
         if tokens[-1] == 0:
             tokens = tokens[:-1]
-        frame_counts = frame_counts[1:-1]  # Remove padding token frames
+            frame_counts = frame_counts[:-1]
 
         # Split text into words
         words = text.strip().split()
@@ -219,13 +220,14 @@ class StyleTTS2:
             # Count frames until we reach a space or end of sequence
             while current_token_idx < len(frame_counts):
                 word_frame_count += frame_counts[current_token_idx]
-                current_token_idx += 1
 
-                # If we hit a space token (usually represented by token 16 in the vocabulary)
-                # or reach the end of the phonemes for this word, break
-                if tokens[current_token_idx] == 16:  # Space token
+                # If we hit a space token or reach the end of the phonemes for
+                # this word, break
+                if tokens[current_token_idx] == word_index_dictionary[" "]:
                     current_token_idx += 1  # Skip the space token
                     break
+
+                current_token_idx += 1
                 
             # Convert frames to time
             start_time = (word_start_frame * hop_size) / sample_rate
@@ -300,7 +302,9 @@ class StyleTTS2:
 
         textcleaner = TextCleaner()  # TODO: look into removing
         tokens = textcleaner(phoneme_string)
+        # Add padding tokens to start and end
         tokens.insert(0, 0)
+        tokens.append(0)
         tokens = torch.LongTensor(tokens).to(self.device).unsqueeze(0)
 
         with torch.no_grad():
@@ -340,7 +344,7 @@ class StyleTTS2:
                 c_frame += int(pred_dur[i].data)
 
             # Calculate word timings after duration prediction
-            timings = self.calculate_word_timings(text, tokens, pred_aln_trg)
+            timings = self.calculate_word_timings(text, tokens, pred_aln_trg, textcleaner.word_index_dictionary)
 
             # encode prosody
             en = (d.transpose(-1, -2) @ pred_aln_trg.unsqueeze(0).to(self.device))
@@ -470,7 +474,9 @@ class StyleTTS2:
 
         textcleaner = TextCleaner()
         tokens = textcleaner(phoneme_string)
+        # Add padding tokens to start and end
         tokens.insert(0, 0)
+        tokens.append(0)
         tokens = torch.LongTensor(tokens).to(self.device).unsqueeze(0)
 
         with torch.no_grad():
@@ -516,7 +522,7 @@ class StyleTTS2:
                 c_frame += int(pred_dur[i].data)
 
             # Calculate word timings for this segment
-            timings = self.calculate_word_timings(text, tokens, pred_aln_trg)
+            timings = self.calculate_word_timings(text, tokens, pred_aln_trg, textcleaner.word_index_dictionary)
             
             # Add the current time offset to all timings
             for timing in timings:
